@@ -20,13 +20,13 @@ export default function CashierReturn() {
   const [qtyInput, setQtyInput] = useState<number>(1);
   const [priceInput, setPriceInput] = useState<number>(0);
 
-  useEffect(() => {
-    generateNewInvoiceId();
-  }, []);
-
   const generateNewInvoiceId = () => {
     setInvoiceId(Math.random().toString(36).substr(2, 9).toUpperCase());
   };
+
+  useEffect(() => {
+    generateNewInvoiceId();
+  }, []);
 
   const handleSearch = (val: string) => {
     setSearchTerm(val);

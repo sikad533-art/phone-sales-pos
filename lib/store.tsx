@@ -178,31 +178,32 @@ const defaultState: AppState = {
 
 const AppContext = createContext<AppContextType | null>(null);
 
-export const AppProvider = ({ children }: { children: React.ReactNode }) => {
-  const [state, setState] = useState<AppState>(defaultState);
-
-  // Load from local storage
-  useEffect(() => {
-    const saved = localStorage.getItem('phone_sys_state');
-    if (saved) {
-      try {
-        const parsedState = JSON.parse(saved);
-        setState({ 
-          ...defaultState, 
-          ...parsedState, 
-          products: parsedState.products || defaultState.products,
-          invoices: parsedState.invoices || defaultState.invoices,
-          installmentCustomers: parsedState.installmentCustomers || defaultState.installmentCustomers,
-          customers: parsedState.customers || [],
-          users: parsedState.users || defaultState.users,
-          inventoryDocuments: parsedState.inventoryDocuments || defaultState.inventoryDocuments,
-          currentUser: null
-        });
-      } catch (e) {
-        console.error('Failed to load state', e);
-      }
+function loadInitialState(): AppState {
+  if (typeof window === 'undefined') return defaultState;
+  const saved = localStorage.getItem('phone_sys_state');
+  if (saved) {
+    try {
+      const parsedState = JSON.parse(saved);
+      return {
+        ...defaultState,
+        ...parsedState,
+        products: parsedState.products || defaultState.products,
+        invoices: parsedState.invoices || defaultState.invoices,
+        installmentCustomers: parsedState.installmentCustomers || defaultState.installmentCustomers,
+        customers: parsedState.customers || [],
+        users: parsedState.users || defaultState.users,
+        inventoryDocuments: parsedState.inventoryDocuments || defaultState.inventoryDocuments,
+        currentUser: null
+      };
+    } catch (e) {
+      console.error('Failed to load state', e);
     }
-  }, []);
+  }
+  return defaultState;
+}
+
+export const AppProvider = ({ children }: { children: React.ReactNode }) => {
+  const [state, setState] = useState<AppState>(loadInitialState);
 
   // Save to local storage
   useEffect(() => {
