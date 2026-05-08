@@ -73,6 +73,20 @@ export type Installment = {
   actualDate?: string;
 };
 
+export type Customer = {
+  id: string;
+  name: string;
+  phone: string;
+  address: string;
+  idCardNumber?: string;
+  areaType?: 'inside' | 'outside';
+  guarantor1Name?: string;
+  guarantor1Phone?: string;
+  guarantor2Name?: string;
+  guarantor2Phone?: string;
+  createdAt: string;
+};
+
 export type InstallmentCustomer = {
   id: string;
   notebookPage: string;
@@ -104,6 +118,7 @@ type AppState = {
   products: Product[];
   invoices: Invoice[];
   installmentCustomers: InstallmentCustomer[];
+  customers: Customer[];
   users: User[];
   currentUser: User | null;
   inventoryDocuments: InventoryDocument[];
@@ -123,6 +138,9 @@ type AppContextType = {
   updateUser: (u: User) => void;
   deleteUser: (id: string) => void;
   addInventoryDocument: (doc: InventoryDocument) => void;
+  addCustomer: (c: Customer) => void;
+  updateCustomer: (c: Customer) => void;
+  deleteCustomer: (id: string) => void;
 };
 
 const defaultManager: User = {
@@ -152,6 +170,7 @@ const defaultState: AppState = {
   ],
   invoices: [],
   installmentCustomers: [],
+  customers: [],
   users: [defaultManager],
   currentUser: null,
   inventoryDocuments: [],
@@ -174,9 +193,10 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
           products: parsedState.products || defaultState.products,
           invoices: parsedState.invoices || defaultState.invoices,
           installmentCustomers: parsedState.installmentCustomers || defaultState.installmentCustomers,
+          customers: parsedState.customers || [],
           users: parsedState.users || defaultState.users,
           inventoryDocuments: parsedState.inventoryDocuments || defaultState.inventoryDocuments,
-          currentUser: null // always require login on refresh
+          currentUser: null
         });
       } catch (e) {
         console.error('Failed to load state', e);
@@ -271,8 +291,20 @@ export const AppProvider = ({ children }: { children: React.ReactNode }) => {
     setState(s => ({ ...s, users: s.users.filter(existing => existing.id !== id) }));
   };
 
+  const addCustomer = (c: Customer) => {
+    setState(s => ({ ...s, customers: [...s.customers, c] }));
+  };
+
+  const updateCustomer = (c: Customer) => {
+    setState(s => ({ ...s, customers: s.customers.map(x => x.id === c.id ? c : x) }));
+  };
+
+  const deleteCustomer = (id: string) => {
+    setState(s => ({ ...s, customers: s.customers.filter(x => x.id !== id) }));
+  };
+
   return (
-    <AppContext.Provider value={{ state, addProduct, updateProduct, updateProductQuantity, addInvoice, addInstallmentCustomer, updateInstallment, login, logout, addUser, updateUser, deleteUser, addInventoryDocument }}>
+    <AppContext.Provider value={{ state, addProduct, updateProduct, updateProductQuantity, addInvoice, addInstallmentCustomer, updateInstallment, login, logout, addUser, updateUser, deleteUser, addInventoryDocument, addCustomer, updateCustomer, deleteCustomer }}>
       {children}
     </AppContext.Provider>
   );

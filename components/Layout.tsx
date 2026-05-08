@@ -17,7 +17,9 @@ import {
   User as UserIcon,
   Lock,
   Menu,
-  X
+  X,
+  Users,
+  DollarSign
 } from 'lucide-react';
 
 export default function Layout({ children }: { children: React.ReactNode }) {
@@ -73,6 +75,8 @@ export default function Layout({ children }: { children: React.ReactNode }) {
     { name: 'الكاشير', path: '/cashier', icon: ShoppingCart, show: p.movement_cashier },
     { name: 'مرتجع الكاشير', path: '/cashier-return', icon: RotateCcw, show: p.movement_cashierReturn },
     { name: 'مبيعات عربون (تقسيط)', path: '/installments', icon: CreditCard, show: p.movement_downPayment || p.installments_addCustomer || p.installments_pay },
+    { name: 'تسجيل عميل', path: '/customers', icon: Users, show: p.installments_addCustomer },
+    { name: 'السداد', path: '/payments', icon: DollarSign, show: p.installments_pay },
   ].filter(item => item.show);
 
   const showReports = true; // All can see these for now unless specified

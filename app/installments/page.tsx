@@ -1,529 +1,253 @@
 "use client";
 
 import Layout from '@/components/Layout';
-import { useState } from 'react';
-import { useAppContext, InstallmentCustomer, Product } from '@/lib/store';
-import { Search, Plus, Calendar, Check, User, Phone, MapPin, FileDigit, Smartphone } from 'lucide-react';
+import { useState, useMemo } from 'react';
+import { useAppContext, InstallmentCustomer } from '@/lib/store';
+import Link from 'next/link';
+import { Search, Check, CreditCard } from 'lucide-react';
 
 export default function Installments() {
-  const { state, addInstallmentCustomer, updateInstallment } = useAppContext();
-  const [activeTab, setActiveTab] = useState<'search' | 'new'>('search');
-  
-  // Search State
+  const { state, addInstallmentCustomer } = useAppContext();
+
+  // Search existing contracts
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedCustomer, setSelectedCustomer] = useState<InstallmentCustomer | null>(null);
+  const [selectedContract, setSelectedContract] = useState<InstallmentCustomer | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Record<string, boolean>>({});
 
-  // New Contract State
-  const [newCust, setNewCust] = useState<Partial<InstallmentCustomer>>({ months: 10 });
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  // New contract
+  const [selectedCustomer, setSelectedCustomer] = useState<string>('');
+  const [selectedProduct, setSelectedProduct] = useState<string>('');
   const [productSearch, setProductSearch] = useState('');
+  const [discountPercentage, setDiscountPercentage] = useState(0);
+  const [installmentPercentage, setInstallmentPercentage] = useState(0);
+  const [downPayment, setDownPayment] = useState(0);
+  const [downPaymentMethod, setDownPaymentMethod] = useState<'cash' | 'visa' | 'instapay' | 'vodafone_cash'>('cash');
+  const [visaCode, setVisaCode] = useState('');
+  const [months, setMonths] = useState(10);
+  const [isPaidRemaining, setIsPaidRemaining] = useState(false);
 
-  // Find customer
-  const handleSearch = () => {
+  const product = state.products.find(p => p.id === selectedProduct);
+  const customer = state.customers.find(c => c.id === selectedCustomer);
+  const productResults = useMemo(() => productSearch ? state.products.filter(p => p.name.includes(productSearch)) : [], [productSearch, state.products]);
+
+  const handleSearchContract = () => {
     if (!searchQuery) return;
-    const found = state.installmentCustomers.find(c => 
-      c.name.includes(searchQuery) || 
-      c.phone.includes(searchQuery) || 
-      c.notebookPage === searchQuery ||
-      c.idCardNumber === searchQuery
+    const found = state.installmentCustomers.find(c =>
+      c.name.includes(searchQuery) || c.phone.includes(searchQuery) || c.notebookPage === searchQuery
     );
-    setSelectedCustomer(found || null);
-    if (!found) alert('لم يتم العثور على عميل');
+    setSelectedContract(found || null);
+    if (!found) alert('لم يتم العثور على عقد');
   };
 
-  const handlePayInstallment = (installmentId: string, amount: number) => {
-    if (!selectedCustomer) return;
-    const actualDate = new Date().toISOString().split('T')[0];
-    updateInstallment(selectedCustomer.id, installmentId, amount, actualDate);
-    // Update local state to reflect change immediately without re-rendering everything from context
-    setSelectedCustomer(prev => {
-      if (!prev) return prev;
-      return {
-        ...prev,
-        installments: prev.installments.map(inst => 
-          inst.id === installmentId ? { ...inst, status: 'paid', paidAmount: amount, actualDate } : inst
-        )
-      }
-    });
-  };
-
-  const handleCreateContract = () => {
-    if (!newCust.name || !newCust.phone || !selectedProduct || !newCust.downPayment || !newCust.months) {
-      alert('الرجاء إكمال البيانات الأساسية');
+  const handleCreate = () => {
+    if (!selectedCustomer || !selectedProduct || !downPayment) {
+      alert('اختر العميل والجهاز وأدخل العربون');
       return;
     }
+    if (!customer || !product) return;
 
-    const price = selectedProduct.price;
-    const discount = newCust.discountPercentage || 0;
-    const remainingBeforeFees = (price - (price * discount / 100)) - (newCust.downPayment || 0);
-    const totalRemaining = remainingBeforeFees + (remainingBeforeFees * (newCust.installmentPercentage || 0) / 100);
+    const price = product.price;
+    const afterDiscount = price - (price * discountPercentage / 100);
+    const afterDown = afterDiscount - downPayment;
+    const totalRemaining = afterDown + (afterDown * installmentPercentage / 100);
+    const monthlyAmount = isPaidRemaining || months === 0 ? 0 : totalRemaining / months;
 
-    let monthlyAmount = 0;
-    let installments: any[] = [];
+    const installments = isPaidRemaining ? [] : Array.from({ length: months }, (_, i) => {
+      const d = new Date(); d.setMonth(d.getMonth() + i + 1);
+      return { id: Math.random().toString(36).substr(2, 9), monthNumber: i + 1, expectedDate: d.toISOString().split('T')[0], amount: monthlyAmount, paidAmount: 0, status: 'unpaid' as const };
+    });
 
-    if (!newCust.paidRemaining && (newCust.months || 0) > 0) {
-      monthlyAmount = totalRemaining / (newCust.months || 1);
-      installments = Array.from({ length: newCust.months || 1 }).map((_, i) => {
-        const date = new Date();
-        date.setMonth(date.getMonth() + i + 1);
-        return {
-          id: Math.random().toString(36).substr(2, 9),
-          monthNumber: i + 1,
-          expectedDate: date.toISOString().split('T')[0],
-          amount: monthlyAmount,
-          paidAmount: 0,
-          status: 'unpaid' as const,
-        };
-      });
-    }
-
-    const customer: InstallmentCustomer = {
+    const contract: InstallmentCustomer = {
       id: Math.random().toString(36).substr(2, 9),
-      notebookPage: newCust.notebookPage || '',
-      name: newCust.name,
-      phone: newCust.phone,
-      address: newCust.address || '',
-      idCardNumber: newCust.idCardNumber,
-      areaType: newCust.areaType || 'inside',
-      deviceId: selectedProduct.id,
+      notebookPage: customer.idCardNumber || '',
+      name: customer.name,
+      phone: customer.phone,
+      address: customer.address,
+      idCardNumber: customer.idCardNumber,
+      areaType: customer.areaType || 'inside',
+      deviceId: product.id,
       devicePrice: price,
-      discountPercentage: discount,
-      installmentPercentage: newCust.installmentPercentage || 0,
-      downPayment: newCust.downPayment || 0,
-      downPaymentMethod: newCust.downPaymentMethod || 'cash',
-      visaCode: newCust.visaCode,
-      paidRemaining: newCust.paidRemaining || false,
-      isDelivered: newCust.isDelivered || false,
-      months: newCust.paidRemaining ? 0 : (newCust.months || 1),
+      discountPercentage,
+      installmentPercentage,
+      downPayment,
+      downPaymentMethod,
+      visaCode: downPaymentMethod !== 'cash' ? visaCode : undefined,
+      paidRemaining: isPaidRemaining,
+      isDelivered: true,
+      months: isPaidRemaining ? 0 : months,
       monthlyAmount,
       installments,
-      guarantor1Name: newCust.guarantor1Name,
-      guarantor1Phone: newCust.guarantor1Phone,
+      guarantor1Name: customer.guarantor1Name,
+      guarantor1Phone: customer.guarantor1Phone,
     };
 
-    addInstallmentCustomer(customer);
-    alert('تم إنشاء التعاقد بنجاح!');
-    setActiveTab('search');
-    setSearchQuery(customer.phone);
-    setSelectedCustomer(customer);
-    setNewCust({ months: 10 });
-    setSelectedProduct(null);
-    setProductSearch('');
+    addInstallmentCustomer(contract);
+    alert('تم إنشاء عقد العربون/التقسيط بنجاح ✅');
+    setSelectedCustomer(''); setSelectedProduct(''); setDownPayment(0); setMonths(10);
+    setIsPaidRemaining(false); setDiscountPercentage(0); setInstallmentPercentage(0);
+    setVisaCode(''); setDownPaymentMethod('cash');
   };
 
-  const productSearchResults = productSearch 
-    ? state.products.filter(p => p.name.includes(productSearch))
-    : [];
+  const remainingAmount = product && !isPaidRemaining && months > 0
+    ? ((product.price - (product.price * discountPercentage / 100)) - downPayment) * (1 + installmentPercentage / 100)
+    : 0;
 
   return (
     <Layout>
-      <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden h-full flex flex-col">
-        {/* Tabs */}
-        <div className="flex border-b border-gray-200">
-          <button 
-            className={`flex-1 py-4 font-semibold text-lg flex justify-center items-center gap-2 ${activeTab === 'search' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
-            onClick={() => setActiveTab('search')}
-          >
-            <Search size={20} />
-            بحث وسداد أقساط
-          </button>
-          <button 
-            className={`flex-1 py-4 font-semibold text-lg flex justify-center items-center gap-2 ${activeTab === 'new' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/50' : 'text-gray-500 hover:bg-gray-50'}`}
-            onClick={() => setActiveTab('new')}
-          >
-            <Plus size={20} />
-            تعاقد جديد
-          </button>
+      <div className="max-w-6xl mx-auto">
+        <h2 className="text-2xl font-bold text-indigo-900 mb-6 flex items-center gap-2">
+          <CreditCard size={24} /> مبيعات العربون والتقسيط
+        </h2>
+
+        {/* Search Existing Contracts */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mb-8">
+          <div className="flex gap-4 items-end">
+            <div className="flex-1">
+              <label className="block text-sm font-medium text-gray-700 mb-1">بحث عن عقد موجود</label>
+              <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearchContract()}
+                placeholder="ابحث بالاسم أو رقم التليفون..."
+                className="w-full border-gray-300 rounded-lg p-3 border focus:ring-indigo-500 focus:border-indigo-500" />
+            </div>
+            <button onClick={handleSearchContract} className="bg-indigo-600 text-white px-6 py-3 rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2"><Search size={20} /> بحث</button>
+          </div>
+
+          {selectedContract && (
+            <div className="mt-4 p-4 bg-gray-50 rounded-lg border border-gray-200">
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div><span className="text-gray-500">العميل:</span> <span className="font-bold">{selectedContract.name}</span></div>
+                <div><span className="text-gray-500">الجهاز:</span> <span className="font-bold">{state.products.find(p => p.id === selectedContract.deviceId)?.name || '-'}</span></div>
+                <div><span className="text-gray-500">المقدم:</span> <span className="font-bold">{selectedContract.downPayment} ج</span></div>
+                <div><span className="text-gray-500">المتبقي:</span> <span className="font-bold text-indigo-700">{(selectedContract.months * selectedContract.monthlyAmount - selectedContract.installments.filter(i => i.status === 'paid').reduce((s, i) => s + i.paidAmount, 0)).toFixed(2)} ج</span></div>
+              </div>
+              <Link href="/payments" className="mt-3 inline-flex items-center gap-1 text-indigo-600 font-medium text-sm hover:underline">
+                <CreditCard size={16} /> الذهاب لصفحة السداد
+              </Link>
+            </div>
+          )}
         </div>
 
-        <div className="flex-1 overflow-auto p-6">
-          {activeTab === 'search' && (
-            <div className="max-w-5xl mx-auto space-y-8">
-              <div className="flex gap-4 items-end">
-                <div className="flex-1">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">بحث برقم الصفحة، الهاتف، أو الاسم</label>
-                  <input 
-                    type="text"
-                    value={searchQuery}
-                    onChange={(e) => setSearchQuery(e.target.value)}
-                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                    placeholder="أدخل عبارة البحث..."
-                    className="w-full border-gray-300 rounded-lg shadow-sm p-3 border focus:ring-indigo-500 focus:border-indigo-500"
-                  />
-                </div>
-                <button 
-                  onClick={handleSearch}
-                  className="bg-indigo-600 text-white px-8 py-3 rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2"
-                >
-                  <Search size={20} />
-                  بحث
-                </button>
+        {/* New Contract */}
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6">
+          <h3 className="text-xl font-bold text-indigo-900 mb-6">🔖 عقد عربون جديد</h3>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+
+            {/* Customer Selection */}
+            <div className="space-y-5">
+              <h4 className="font-bold text-gray-800 border-b pb-2">اختيار العميل</h4>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">اختر عميل <span className="text-red-500">*</span></label>
+                <select value={selectedCustomer} onChange={e => setSelectedCustomer(e.target.value)}
+                  className="w-full border-gray-300 rounded-lg p-3 border">
+                  <option value="">-- اختر عميل --</option>
+                  {state.customers.map(c => <option key={c.id} value={c.id}>{c.name} - {c.phone}</option>)}
+                </select>
+                {selectedCustomer && customer && (
+                  <div className="mt-2 p-3 bg-gray-50 rounded-lg text-sm">
+                    <p><span className="text-gray-500">العنوان:</span> {customer.address || '-'}</p>
+                    <p><span className="text-gray-500">الضامن:</span> {customer.guarantor1Name || '-'} {customer.guarantor1Phone ? `(${customer.guarantor1Phone})` : ''}</p>
+                  </div>
+                )}
               </div>
 
-              {selectedCustomer && (
-                <div className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                  <div className="bg-gray-50 p-6 border-b border-gray-200">
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-4">
-                      
-                      {/* Row 1 */}
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">اسم العميل</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.name || ''} />
-                      </div>
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">التاريخ</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.installments[0] ? (() => {const d = new Date(selectedCustomer.installments[0].expectedDate); d.setMonth(d.getMonth()-1); return d.toISOString().split('T')[0]})() : ''} />
-                      </div>
-
-                      {/* Row 2 */}
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">رقم التليفون</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.phone || ''} />
-                      </div>
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">اسم الضامن</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.guarantor1Name || ''} />
-                      </div>
-
-                      {/* Row 3 - Address full width, guarantor phone */}
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">العنوان</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.address || ''} />
-                      </div>
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">هاتف الضامن</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.guarantor1Phone || ''} />
-                      </div>
-
-                      {/* Row 4 */}
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">اسم الجهاز</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={state.products.find(p => p.id === selectedCustomer.deviceId)?.name || 'غير معروف'} />
-                      </div>
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">سعر الجهاز</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.devicePrice || ''} />
-                      </div>
-
-                      {/* Row 5 */}
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">المقدم</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.downPayment || 0} />
-                      </div>
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">عدد الشهور</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-medium text-gray-800" value={selectedCustomer.months || 0} />
-                      </div>
-
-                      {/* Row 6 */}
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">الإجمالي بعد المقدم</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-black text-indigo-900 shadow-inner" value={(selectedCustomer.monthlyAmount * selectedCustomer.months).toFixed(2)} />
-                      </div>
-                      <div className="flex items-center gap-4">
-                         <label className="w-32 font-bold text-gray-700 whitespace-nowrap">الدفعة الشهرية</label>
-                         <input type="text" readOnly className="flex-1 p-2 border border-gray-300 rounded-lg bg-gray-200/60 font-black text-indigo-900 shadow-inner" value={selectedCustomer.monthlyAmount?.toFixed(2)} />
-                      </div>
-
-                    </div>
+              <h4 className="font-bold text-gray-800 border-b pb-2">اختيار الجهاز</h4>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">الجهاز المباع <span className="text-red-500">*</span></label>
+                {selectedProduct ? (
+                  <div className="bg-green-50 p-3 rounded-lg border border-green-200 flex justify-between items-center">
+                    <span className="font-bold text-green-700">{product?.name} - {product?.price} ج</span>
+                    <button onClick={() => setSelectedProduct('')} className="text-xs text-red-500 hover:underline">تغيير</button>
                   </div>
-                  
-                  {selectedCustomer.paidRemaining ? (
-                    <div className="p-8 text-center text-green-700 bg-green-50 mt-4 mx-6 mb-6 rounded-xl border border-green-200">
-                      <Check size={48} className="mx-auto mb-2" />
-                      <h4 className="text-xl font-bold">تم سداد سعر الجهاز بالكامل (بدون أقساط)</h4>
-                      <p className="text-green-800 mt-2 font-medium">طريقة سداد العربون: {selectedCustomer.downPaymentMethod}</p>
-                    </div>
-                  ) : (
-                    <div className="p-6">
-                      <table className="w-full text-right border-collapse text-sm border border-gray-200 rounded-lg overflow-hidden block md:table">
-                      <thead className="hidden md:table-header-group">
-                        <tr className="bg-indigo-50 text-indigo-900 border-b border-indigo-100">
-                          <th className="p-4 font-bold border-l border-indigo-100">رقم القسط</th>
-                          <th className="p-4 font-bold border-l border-indigo-100">تاريخ الدفعات</th>
-                          <th className="p-4 font-bold border-l border-indigo-100">مبلغ الدفع</th>
-                          <th className="p-4 font-bold border-l border-indigo-100">تاريخ الدفع</th>
-                          <th className="p-4 font-bold w-32">الإجراء</th>
-                        </tr>
-                      </thead>
-                      <tbody className="block md:table-row-group">
-                        {selectedCustomer.installments.map((inst) => {
-                          const isPaid = inst.status === 'paid';
-                          return (
-                            <tr key={inst.id} className={`block md:table-row border-b border-gray-200 md:border-b md:border-gray-100 ${isPaid ? 'bg-green-50/50' : 'hover:bg-gray-50'}`}>
-                              <td className="p-4 md:border-l md:border-gray-100 block md:table-cell border-b border-dashed md:border-none">
-                                <span className="inline-block w-1/3 md:hidden font-semibold text-gray-500">رقم القسط:</span>
-                                <span className="font-bold text-indigo-900">{inst.monthNumber}</span>
-                              </td>
-                              <td className="p-4 md:border-l md:border-gray-100 block md:table-cell border-b border-dashed md:border-none font-medium">
-                                <span className="inline-block w-1/3 md:hidden font-semibold text-gray-500">تاريخ الدفعات:</span>
-                                {inst.expectedDate}
-                              </td>
-                              <td className="p-4 md:border-l md:border-gray-100 block md:table-cell border-b border-dashed md:border-none text-indigo-700 font-bold">
-                                <span className="inline-block w-1/3 md:hidden font-semibold text-gray-500">مبلغ الدفع:</span>
-                                {isPaid ? inst.paidAmount.toFixed(2) : inst.amount.toFixed(2)} ج
-                              </td>
-                              <td className="p-4 md:border-l md:border-gray-100 block md:table-cell border-b border-dashed md:border-none text-gray-600 font-medium">
-                                <span className="inline-block w-1/3 md:hidden font-semibold text-gray-500">تاريخ الدفع:</span>
-                                {inst.actualDate || '-'}
-                              </td>
-                              <td className="p-4 block md:table-cell">
-                                {isPaid ? (
-                                  <span className="flex items-center gap-1 text-green-700 font-bold justify-center bg-green-100 py-1.5 px-3 rounded text-center">
-                                    <Check size={16} /> مسدد
-                                  </span>
-                                ) : (
-                                  <button 
-                                    onClick={() => handlePayInstallment(inst.id, inst.amount)}
-                                    className="w-full bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 font-bold shadow-sm transition-colors"
-                                  >
-                                    دفع القسط
-                                  </button>
-                                )}
-                              </td>
-                            </tr>
-                          )
-                        })}
-                      </tbody>
-                    </table>
+                ) : (
+                  <div className="relative">
+                    <input type="text" placeholder="ابحث عن جهاز..." value={productSearch} onChange={e => setProductSearch(e.target.value)}
+                      className="w-full border-gray-300 rounded-lg p-3 border pr-10" />
+                    <Search className="absolute left-3 top-3.5 text-gray-400" size={18} />
+                    {productSearch && productResults.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 shadow-xl max-h-48 overflow-auto z-10 rounded-lg mt-1">
+                        {productResults.map(p => (
+                          <div key={p.id} onClick={() => { setSelectedProduct(p.id); setProductSearch(''); }}
+                            className="p-3 hover:bg-gray-100 cursor-pointer border-b text-sm flex justify-between">
+                            <span>{p.name}</span><span className="text-gray-500">{p.price} ج</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
                   </div>
-                  )}
+                )}
+              </div>
+            </div>
+
+            {/* Payment & Installment Terms */}
+            <div className="space-y-5 bg-gray-50 p-6 rounded-xl border border-gray-200">
+              <h4 className="font-bold text-gray-800 border-b pb-2">بيانات العربون والتقسيط</h4>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">سعر الجهاز</label>
+                  <input type="number" disabled value={product?.price || ''} className="w-full border-gray-300 rounded-lg p-3 border bg-gray-100" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">نسبة الخصم %</label>
+                  <input type="number" min="0" max="100" value={discountPercentage} onChange={e => setDiscountPercentage(Number(e.target.value) || 0)} className="w-full border-gray-300 rounded-lg p-3 border" />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">العربون (المقدم) <span className="text-red-500">*</span></label>
+                  <input type="number" value={downPayment} onChange={e => setDownPayment(Number(e.target.value) || 0)} className="w-full border-gray-300 rounded-lg p-3 border font-bold text-lg" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">طريقة سداد العربون</label>
+                  <select value={downPaymentMethod} onChange={e => setDownPaymentMethod(e.target.value as any)} className="w-full border-gray-300 rounded-lg p-3 border">
+                    <option value="cash">نقدي</option>
+                    <option value="visa">فيزا</option>
+                    <option value="instapay">إنستاباي</option>
+                    <option value="vodafone_cash">فودافون كاش</option>
+                  </select>
+                </div>
+              </div>
+
+              {downPaymentMethod !== 'cash' && (
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">كود الفيزا / آخر 4 أرقام</label>
+                  <input type="text" value={visaCode} onChange={e => setVisaCode(e.target.value)} className="w-full border-gray-300 rounded-lg p-3 border bg-yellow-50" />
                 </div>
               )}
+
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">نسبة القسط للزبون %</label>
+                  <input type="number" min="0" max="100" value={installmentPercentage} onChange={e => setInstallmentPercentage(Number(e.target.value) || 0)} className="w-full border-gray-300 rounded-lg p-3 border" />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">عدد الشهور</label>
+                  <input type="number" min="1" disabled={isPaidRemaining} value={isPaidRemaining ? 0 : months} onChange={e => setMonths(Number(e.target.value) || 1)} className="w-full border-gray-300 rounded-lg p-3 border" />
+                </div>
+              </div>
+
+              <label className="flex items-center gap-2 cursor-pointer text-green-700 font-medium bg-green-50 p-3 rounded-lg">
+                <input type="checkbox" className="w-5 h-5 rounded text-green-600" checked={isPaidRemaining} onChange={e => setIsPaidRemaining(e.target.checked)} />
+                سدد الباقي كاش (بدون أقساط)
+              </label>
+
+              <div className="border-t border-gray-200 pt-4 space-y-2">
+                <div className="flex justify-between text-sm"><span className="text-gray-600">السعر بعد الخصم:</span><span className="font-bold">{product ? (product.price - (product.price * discountPercentage / 100)).toFixed(2) : 0} ج</span></div>
+                <div className="flex justify-between text-sm"><span className="text-gray-600">المتبقي بعد العربون:</span><span className="font-bold">{product ? ((product.price - (product.price * discountPercentage / 100)) - downPayment).toFixed(2) : 0} ج</span></div>
+                {!isPaidRemaining && months > 0 && (
+                  <>
+                    <div className="flex justify-between text-sm"><span className="text-gray-600">الإجمالي + نسبة القسط:</span><span className="font-bold text-indigo-700">{remainingAmount.toFixed(2)} ج</span></div>
+                    <div className="flex justify-between text-lg border-t border-gray-200 pt-2"><span className="text-gray-700 font-bold">الدفعة الشهرية:</span><span className="font-black text-indigo-700">{(remainingAmount / months).toFixed(2)} ج</span></div>
+                  </>
+                )}
+              </div>
+
+              <button onClick={handleCreate}
+                className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2 text-lg mt-4">
+                <CreditCard size={22} /> حفظ عقد العربون
+              </button>
             </div>
-          )}
-
-          {activeTab === 'new' && (
-            <div className="max-w-4xl mx-auto">
-               <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                  {/* بيانات العميل */}
-                  <div className="space-y-5">
-                    <h3 className="font-bold text-lg text-indigo-900 border-b pb-2">بيانات العميل</h3>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">رقم الصفحة في الدفتر</label>
-                      <input 
-                        type="text" 
-                        value={newCust.notebookPage || ''} onChange={e => setNewCust({...newCust, notebookPage: e.target.value})}
-                        className="w-full border-gray-300 rounded-md p-2.5 border focus:ring-indigo-500 focus:border-indigo-500" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">اسم العميل <span className="text-red-500">*</span></label>
-                      <input 
-                        type="text" 
-                        value={newCust.name || ''} onChange={e => setNewCust({...newCust, name: e.target.value})}
-                        className="w-full border-gray-300 rounded-md p-2.5 border focus:ring-indigo-500 focus:border-indigo-500" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">التليفون <span className="text-red-500">*</span></label>
-                      <input 
-                        type="text" 
-                        value={newCust.phone || ''} onChange={e => setNewCust({...newCust, phone: e.target.value})}
-                        className="w-full border-gray-300 rounded-md p-2.5 border focus:ring-indigo-500 focus:border-indigo-500" 
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">العنوان</label>
-                        <input 
-                          type="text" 
-                          value={newCust.address || ''} onChange={e => setNewCust({...newCust, address: e.target.value})}
-                          className="w-full border-gray-300 rounded-md p-2.5 border focus:ring-indigo-500 focus:border-indigo-500" 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">رقم البطاقة</label>
-                        <input 
-                          type="text" maxLength={14}
-                          value={newCust.idCardNumber || ''} onChange={e => setNewCust({...newCust, idCardNumber: e.target.value})}
-                          className="w-full border-gray-300 rounded-md p-2.5 border focus:ring-indigo-500 focus:border-indigo-500" 
-                        />
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">المنطقة</label>
-                      <div className="flex gap-4 mt-2">
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" name="area" checked={newCust.areaType !== 'outside'} onChange={() => setNewCust({...newCust, areaType: 'inside'})} />
-                          داخل المنطقة
-                        </label>
-                        <label className="flex items-center gap-2 cursor-pointer">
-                          <input type="radio" name="area" checked={newCust.areaType === 'outside'} onChange={() => setNewCust({...newCust, areaType: 'outside'})} />
-                          خارج المنطقة
-                        </label>
-                      </div>
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">حالة التسليم</label>
-                      <label className="flex items-center gap-2 cursor-pointer mt-2 text-indigo-700 font-medium">
-                        <input type="checkbox" className="w-5 h-5 rounded text-indigo-600 focus:ring-indigo-500" checked={!!newCust.isDelivered} onChange={e => setNewCust({...newCust, isDelivered: e.target.checked})} />
-                        تم تسليم الجهاز للعميل
-                      </label>
-                    </div>
-                    
-                    <h3 className="font-bold text-lg text-indigo-900 border-b pb-2 pt-4">بيانات الضامن</h3>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">الاسم</label>
-                      <input 
-                        type="text" 
-                        value={newCust.guarantor1Name || ''} onChange={e => setNewCust({...newCust, guarantor1Name: e.target.value})}
-                        className="w-full border-gray-300 rounded-md p-2.5 border" 
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">تليفون الضامن</label>
-                      <input 
-                        type="text" 
-                        value={newCust.guarantor1Phone || ''} onChange={e => setNewCust({...newCust, guarantor1Phone: e.target.value})}
-                        className="w-full border-gray-300 rounded-md p-2.5 border" 
-                      />
-                    </div>
-                  </div>
-
-                  {/* بيانات التعاقد */}
-                  <div className="space-y-5 bg-gray-50 p-6 rounded-xl border border-gray-200">
-                    <h3 className="font-bold text-lg text-indigo-900 border-b pb-2">بيانات الجهاز والتقسيط</h3>
-                    
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">الجهاز المباع <span className="text-red-500">*</span></label>
-                      {selectedProduct ? (
-                        <div className="bg-white p-3 rounded border border-green-300 flex justify-between items-center">
-                          <span className="font-bold text-green-700">{selectedProduct.name}</span>
-                          <button onClick={() => setSelectedProduct(null)} className="text-xs text-red-500 hover:underline">تغيير</button>
-                        </div>
-                      ) : (
-                        <div className="relative">
-                          <input 
-                            type="text" placeholder="ابحث عن جهاز..."
-                            value={productSearch} onChange={e => setProductSearch(e.target.value)}
-                            className="w-full border-gray-300 rounded-md p-2.5 pl-10 border" 
-                          />
-                          <Search className="absolute left-3 top-3 text-gray-400" size={18} />
-                          {productSearch && (
-                            <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 shadow-xl max-h-48 overflow-auto z-10 rounded-md mt-1">
-                              {productSearchResults.map(p => (
-                                <div key={p.id} onClick={() => setSelectedProduct(p)} className="p-3 hover:bg-gray-100 cursor-pointer border-b text-sm flex justify-between">
-                                  <span>{p.name}</span>
-                                  <span className="text-gray-500 font-mono">{p.price} ج</span>
-                                </div>
-                              ))}
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-3 gap-4">
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">سعر الجهاز</label>
-                        <input 
-                          type="number" disabled
-                          value={selectedProduct?.price || ''}
-                          className="w-full border-gray-300 rounded-md p-2.5 border bg-gray-100" 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">نسبة الخصم %</label>
-                        <input 
-                          type="number" min="0" max="100"
-                          value={newCust.discountPercentage || ''} onChange={e => setNewCust({...newCust, discountPercentage: parseFloat(e.target.value) || 0})}
-                          className="w-full border-gray-300 rounded-md p-2.5 border" 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">نسبة القسط للزبون %</label>
-                        <input 
-                          type="number" min="0" max="100"
-                          value={newCust.installmentPercentage || ''} onChange={e => setNewCust({...newCust, installmentPercentage: parseFloat(e.target.value) || 0})}
-                          className="w-full border-gray-300 rounded-md p-2.5 border" 
-                        />
-                      </div>
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="col-span-2">
-                        <label className="flex items-center gap-2 cursor-pointer mt-1 mb-2 text-green-700 font-medium bg-green-50 p-2 rounded">
-                          <input type="checkbox" className="w-5 h-5 rounded text-green-600 focus:ring-green-500" checked={!!newCust.paidRemaining} onChange={e => setNewCust({...newCust, paidRemaining: e.target.checked})} />
-                          سدد الباقي (بدون أقساط)
-                        </label>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">العربون (المدفوع)</label>
-                        <input 
-                          type="number" 
-                          value={newCust.downPayment || ''} onChange={e => setNewCust({...newCust, downPayment: parseFloat(e.target.value) || 0})}
-                          className="w-full border-gray-300 rounded-md p-2.5 border focus:ring-indigo-500 focus:border-indigo-500 font-bold text-lg" 
-                        />
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">عدد الشهور <span className="text-red-500">*</span></label>
-                        <input 
-                          type="number" disabled={!!newCust.paidRemaining}
-                          value={newCust.paidRemaining ? 0 : (newCust.months || 10)} onChange={e => setNewCust({...newCust, months: parseInt(e.target.value) || 1})}
-                          className="w-full border-gray-300 rounded-md p-2.5 border focus:ring-indigo-500 focus:border-indigo-500" 
-                        />
-                      </div>
-                       <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">طريقة السداد</label>
-                        <select 
-                          value={newCust.downPaymentMethod || 'cash'} 
-                          onChange={e => setNewCust({...newCust, downPaymentMethod: e.target.value as any})}
-                          className="w-full border-gray-300 rounded-md p-2.5 border"
-                        >
-                          <option value="cash">نقدي</option>
-                          <option value="visa">فيزا</option>
-                          <option value="instapay">إنستاباي</option>
-                          <option value="vodafone_cash">فودافون كاش</option>
-                        </select>
-                      </div>
-                      {newCust.downPaymentMethod !== 'cash' && newCust.downPaymentMethod !== undefined && (
-                        <div>
-                          <label className="block text-sm font-medium text-gray-700 mb-1">كود الفيزا / أخر 4 أرقام</label>
-                          <input 
-                            type="text" 
-                            value={newCust.visaCode || ''} onChange={e => setNewCust({...newCust, visaCode: e.target.value})}
-                            className="w-full border-gray-300 rounded-md p-2.5 border bg-yellow-50" 
-                          />
-                        </div>
-                      )}
-                    </div>
-
-                    <div className="pt-4 border-t border-gray-200 mt-4">
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-gray-600">المبلغ بعد العربون:</span>
-                        <span className="font-semibold text-lg text-gray-800">
-                          {selectedProduct ? ((selectedProduct.price - (selectedProduct.price * (newCust.discountPercentage || 0) / 100)) - (newCust.downPayment || 0)).toFixed(2) : 0} ج
-                        </span>
-                      </div>
-                      <div className="flex justify-between items-center mb-2">
-                        <span className="text-gray-600">الإجمالي بعد المقدم:</span>
-                        <span className="font-bold text-xl text-gray-800">
-                          {selectedProduct ? (((selectedProduct.price - (selectedProduct.price * (newCust.discountPercentage || 0) / 100)) - (newCust.downPayment || 0)) * (1 + (newCust.installmentPercentage || 0) / 100)).toFixed(2) : 0} ج
-                        </span>
-                      </div>
-                      {!newCust.paidRemaining && (
-                        <div className="flex justify-between items-center mb-6">
-                          <span className="text-gray-600">الدفعة الشهرية:</span>
-                          <span className="font-bold text-2xl text-indigo-600">
-                            {selectedProduct ? ((((selectedProduct.price - (selectedProduct.price * (newCust.discountPercentage || 0) / 100)) - (newCust.downPayment || 0)) * (1 + (newCust.installmentPercentage || 0) / 100)) / (newCust.months || 1)).toFixed(2) : 0} ج
-                          </span>
-                        </div>
-                      )}
-
-                      <button 
-                        onClick={handleCreateContract}
-                        className="w-full bg-indigo-600 text-white p-4 rounded-xl font-bold hover:bg-indigo-700 flex items-center justify-center gap-2"
-                      >
-                        <Check size={20} />
-                        حفظ التعاقد وإنشاء الجدول
-                      </button>
-                    </div>
-                  </div>
-               </div>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </Layout>
