@@ -2,279 +2,253 @@
 
 import Layout from '@/components/Layout';
 import { useState } from 'react';
-import { useAppContext, InstallmentCustomer } from '@/lib/store';
-import { Search, Minus, Check, Receipt } from 'lucide-react';
+import { useAppContext } from '@/lib/store';
+import type { InstallmentCustomer } from '@/lib/store';
+import { Search } from 'lucide-react';
 
 export default function Payments() {
   const { state, updateInstallment } = useAppContext();
-  const [customerNumber, setCustomerNumber] = useState('');
-  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().split('T')[0]);
+  const [searchQuery, setSearchQuery] = useState('');
   const [selectedContract, setSelectedContract] = useState<InstallmentCustomer | null>(null);
-  const [expandedRow, setExpandedRow] = useState<string | null>(null);
+  const [paymentAmount, setPaymentAmount] = useState<number>(0);
+
+  const today = new Date().toLocaleDateString('en-GB');
 
   const handleSearch = () => {
-    if (!customerNumber.trim()) return;
+    if (!searchQuery.trim()) return;
     const found = state.installmentCustomers.find(c =>
-      c.notebookPage === customerNumber || c.phone.includes(customerNumber) || c.name.includes(customerNumber) || c.idCardNumber === customerNumber
+      c.notebookPage === searchQuery || c.phone.includes(searchQuery) || c.name.includes(searchQuery) || c.idCardNumber === searchQuery
     );
     setSelectedContract(found || null);
-    if (!found) alert('لم يتم العثور على عقد');
+    if (found) {
+      // Calculate remaining payment and set default
+      const totalRemaining = (found.monthlyAmount * found.months) - found.installments.filter(i => i.status === 'paid').reduce((s, i) => s + i.paidAmount, 0);
+      setPaymentAmount(found.monthlyAmount > totalRemaining ? totalRemaining : found.monthlyAmount);
+    } else {
+      alert('لم يتم العثور على عقد');
+    }
   };
 
-  const handlePayInstallment = (installmentId: string, amount: number) => {
+  const handlePay = () => {
     if (!selectedContract) return;
-    const actualDate = paymentDate || new Date().toISOString().split('T')[0];
-    updateInstallment(selectedContract.id, installmentId, amount, actualDate);
+    const unpaidInstallment = selectedContract.installments.find(i => i.status !== 'paid');
+    if (!unpaidInstallment) {
+      alert('جميع الأقساط مسددة');
+      return;
+    }
+    if (paymentAmount <= 0) {
+      alert('أدخل مبلغ الدفع');
+      return;
+    }
+    const actualDate = new Date().toISOString().split('T')[0];
+    updateInstallment(selectedContract.id, unpaidInstallment.id, paymentAmount, actualDate);
     setSelectedContract(prev => {
       if (!prev) return prev;
       return {
         ...prev,
         installments: prev.installments.map(inst =>
-          inst.id === installmentId ? { ...inst, status: 'paid', paidAmount: amount, actualDate } : inst
+          inst.id === unpaidInstallment.id
+            ? { ...inst, status: 'paid', paidAmount: paymentAmount, actualDate }
+            : inst
         )
       };
     });
+    alert('تم تسديد الدفعة بنجاح');
   };
 
-  const clearCustomerNumber = () => setCustomerNumber('');
-
+  const totalAmount = selectedContract ? selectedContract.monthlyAmount * selectedContract.months : 0;
+  const totalPaid = selectedContract
+    ? selectedContract.installments.filter(i => i.status === 'paid').reduce((s, i) => s + i.paidAmount, 0)
+    : 0;
+  const remainingAmount = totalAmount - totalPaid;
   const product = selectedContract ? state.products.find(p => p.id === selectedContract.deviceId) : null;
-  const totalPaid = selectedContract?.installments.filter(i => i.status === 'paid').reduce((s, i) => s + i.paidAmount, 0) || 0;
-  const totalRemaining = selectedContract ? (selectedContract.monthlyAmount * selectedContract.months - totalPaid) : 0;
+  const startDate = selectedContract?.installments[0]?.expectedDate
+    ? new Date(selectedContract.installments[0].expectedDate)
+    : new Date();
 
   return (
     <Layout>
-      <div className="max-w-6xl mx-auto">
-        {/* Header / Search */}
-        <div className="flex flex-wrap items-end gap-4 mb-8">
-          {/* Customer search */}
-          <div className="flex items-end gap-3 flex-1 min-w-[280px]">
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">رقم العميل</label>
-              <div className="flex items-center gap-2">
-                <button onClick={clearCustomerNumber} className="w-12 h-12 border border-gray-300 rounded-lg flex items-center justify-center text-gray-500 hover:bg-gray-100 transition-colors">
-                  <Minus size={20} />
-                </button>
-                <input type="text" value={customerNumber} onChange={e => setCustomerNumber(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()}
+      <div className="min-h-[calc(100vh-60px)] px-4 py-6" dir="rtl">
+        <div className="w-full max-w-5xl mx-auto bg-white border-2 border-gray-400 p-6 shadow-xl relative mt-4">
+          {/* Header with search + date */}
+          <div className="flex flex-col md:flex-row justify-between mb-8 gap-4 border-b border-gray-300 pb-6">
+            <div className="flex gap-2 w-full md:w-1/2">
+              <div className="bg-[#111] text-white px-4 flex items-center justify-center font-bold text-sm w-32 shrink-0">رقم العميل :</div>
+              <div className="flex flex-1 border border-gray-400">
+                <input type="text" value={searchQuery} onChange={e => setSearchQuery(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()}
                   placeholder="رقم الصفحة / الهاتف / الاسم"
-                  className="w-full border-gray-300 rounded-lg p-3 border focus:ring-indigo-500 focus:border-indigo-500 h-12" />
+                  className="w-full px-3 outline-none font-bold text-right" />
+                <button onClick={handleSearch} className="bg-blue-600 hover:bg-blue-700 text-white px-4 flex items-center justify-center border-r border-gray-400">
+                  <Search size={18} />
+                </button>
               </div>
             </div>
-            <button onClick={handleSearch} className="bg-indigo-600 text-white h-12 px-6 rounded-lg font-medium hover:bg-indigo-700 flex items-center gap-2">
-              <Search size={20} /> بحث
-            </button>
+            <div className="flex gap-2 w-full md:w-1/3">
+              <div className="bg-[#111] text-white px-4 flex items-center justify-center font-bold text-sm w-24 shrink-0">التاريخ :</div>
+              <div className="flex-1 border border-gray-400 flex items-center justify-center font-bold bg-gray-50">{today}</div>
+            </div>
           </div>
 
-          {/* Date */}
-          <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">التاريخ</label>
-            <input type="date" value={paymentDate} onChange={e => setPaymentDate(e.target.value)}
-              className="w-48 border-gray-300 rounded-lg p-3 border focus:ring-indigo-500 focus:border-indigo-500 h-12" />
-          </div>
-        </div>
-
-        {selectedContract && (
-          <>
-            {/* Customer & Guarantor Data */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-300 overflow-hidden mb-6">
-              <div className="p-6">
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-x-12 gap-y-5">
-                  {/* Right column - Customer */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <label className="font-bold text-gray-600 w-32 shrink-0 text-sm">اسم العميل</label>
-                      <input type="text" value={selectedContract.name} readOnly
-                        className="flex-1 border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 text-sm" />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <label className="font-bold text-gray-600 w-32 shrink-0 text-sm">رقم التليفون</label>
-                      <input type="text" value={selectedContract.phone} readOnly
-                        className="flex-1 border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 text-sm" />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <label className="font-bold text-gray-600 w-32 shrink-0 text-sm">العنوان</label>
-                      <input type="text" value={selectedContract.address || ''} readOnly
-                        className="flex-1 border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 text-sm" />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <label className="font-bold text-gray-600 w-32 shrink-0 text-sm">اسم الجهاز</label>
-                      <input type="text" value={product?.name || 'غير معروف'} readOnly
-                        className="flex-1 border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 text-sm" />
-                    </div>
+          {selectedContract ? (
+            <>
+              {/* Customer Data */}
+              <div className="flex flex-col gap-4">
+                {/* Row 1: name + guarantor */}
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex h-10 border border-gray-400 w-full sm:w-1/2">
+                    <div className="bg-blue-100 text-blue-900 border-l border-gray-400 px-3 flex items-center justify-center font-bold text-sm w-32 shrink-0">اسم العميل :</div>
+                    <input type="text" readOnly value={selectedContract.name} className="w-full px-3 outline-none font-bold text-right bg-gray-50" />
                   </div>
+                  <div className="flex h-10 border border-gray-400 w-full sm:w-1/2">
+                    <div className="bg-blue-100 text-blue-900 border-l border-gray-400 px-3 flex items-center justify-center font-bold text-sm w-32 shrink-0">الضامن :</div>
+                    <input type="text" readOnly value={selectedContract.guarantor1Name || ''} className="w-full px-3 outline-none font-bold text-right bg-gray-50" />
+                  </div>
+                </div>
 
-                  {/* Left column - Guarantor & Price */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-3">
-                      <label className="font-bold text-gray-600 w-32 shrink-0 text-sm">الضامن</label>
-                      <input type="text" value={selectedContract.guarantor1Name || ''} readOnly
-                        className="flex-1 border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 text-sm" />
-                    </div>
-                    <div className="flex items-center gap-3">
-                      <label className="font-bold text-gray-600 w-32 shrink-0 text-sm">رقم الهاتف</label>
-                      <input type="text" value={selectedContract.guarantor1Phone || ''} readOnly
-                        className="flex-1 border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 text-sm" />
-                    </div>
-                    <div className="flex items-center gap-3 mt-2">
-                      <label className="font-bold text-gray-600 w-32 shrink-0 text-sm">سعر الجهاز</label>
-                      <input type="text" value={`${selectedContract.devicePrice.toFixed(2)} ج`} readOnly
-                        className="flex-1 border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 text-sm font-bold text-indigo-700" />
-                    </div>
+                {/* Row 2: phone + guarantor phone */}
+                <div className="flex flex-col sm:flex-row gap-4">
+                  <div className="flex h-10 border border-gray-400 w-full sm:w-1/2">
+                    <div className="bg-blue-100 text-blue-900 border-l border-gray-400 px-3 flex items-center justify-center font-bold text-sm w-32 shrink-0">رقم التليفون :</div>
+                    <input type="text" readOnly value={selectedContract.phone} className="w-full px-3 outline-none font-bold text-right bg-gray-50" dir="ltr" />
+                  </div>
+                  <div className="flex h-10 border border-gray-400 w-full sm:w-1/2">
+                    <div className="bg-blue-100 text-blue-900 border-l border-gray-400 px-3 flex items-center justify-center font-bold text-sm w-32 shrink-0">رقم الهاتف (الضامن) :</div>
+                    <input type="text" readOnly value={selectedContract.guarantor1Phone || ''} className="w-full px-3 outline-none font-bold text-right bg-gray-50" dir="ltr" />
+                  </div>
+                </div>
+
+                {/* Row 3: address (full width) */}
+                <div className="flex h-10 border border-gray-400 w-full">
+                  <div className="bg-blue-100 text-blue-900 border-l border-gray-400 px-3 flex items-center justify-center font-bold text-sm w-32 shrink-0">العنوان :</div>
+                  <input type="text" readOnly value={selectedContract.address || ''} className="w-full px-3 outline-none font-bold text-right bg-gray-50" />
+                </div>
+
+                {/* Row 4: device name + price (teal) */}
+                <div className="flex flex-col sm:flex-row gap-4 mt-2">
+                  <div className="flex h-10 border border-gray-400 w-full sm:w-1/2">
+                    <div className="bg-teal-100 text-teal-900 border-l border-gray-400 px-3 flex items-center justify-center font-bold text-sm w-32 shrink-0">اسم الجهاز :</div>
+                    <input type="text" readOnly value={product?.name || 'غير معروف'} className="w-full px-3 outline-none font-bold text-right bg-gray-50" />
+                  </div>
+                  <div className="flex h-10 border border-gray-400 w-full sm:w-1/2">
+                    <div className="bg-teal-100 text-teal-900 border-l border-gray-400 px-3 flex items-center justify-center font-bold text-sm w-32 shrink-0">سعر الجهاز :</div>
+                    <input type="text" readOnly value={`${selectedContract.devicePrice.toFixed(2)}`} className="w-full px-3 outline-none font-bold text-right bg-gray-50" />
+                  </div>
+                </div>
+
+                {/* Financial Row 1 */}
+                <div className="flex flex-col md:flex-row gap-4">
+                  <div className="flex flex-1 h-10 border border-gray-400 text-sm">
+                    <div className="bg-yellow-100 text-yellow-900 border-l border-gray-400 px-2 flex items-center justify-center font-bold w-24 shrink-0">المقدم :</div>
+                    <input type="text" readOnly value={selectedContract.downPayment.toFixed(2)} className="w-full px-2 outline-none font-bold text-center bg-gray-50" />
+                  </div>
+                  <div className="flex flex-1 h-10 border border-gray-400 text-sm">
+                    <div className="bg-yellow-100 text-yellow-900 border-l border-gray-400 px-2 flex items-center justify-center font-bold w-24 shrink-0">النسبة :</div>
+                    <input type="text" readOnly value={`${selectedContract.installmentPercentage || 0}%`} className="w-full px-2 outline-none font-bold text-center bg-gray-50" />
+                  </div>
+                  <div className="flex flex-1 h-10 border border-blue-400 text-sm">
+                    <div className="bg-blue-100 text-blue-900 border-l border-blue-400 px-2 flex items-center justify-center font-bold w-36 shrink-0">الإجمالي بعد المقدم :</div>
+                    <input type="text" readOnly value={`${totalAmount.toFixed(2)}`} className="w-full px-2 outline-none font-bold text-center bg-blue-50 text-blue-700" />
+                  </div>
+                </div>
+
+                {/* Financial Row 2: months + monthly payment */}
+                <div className="flex flex-col sm:flex-row gap-4 mb-6 mt-2 pb-2">
+                  <div className="flex h-12 border border-gray-400 w-full sm:w-1/2">
+                    <div className="bg-yellow-100 text-yellow-900 border-l border-gray-400 px-2 flex items-center justify-center font-bold w-28 shrink-0">عدد الشهور :</div>
+                    <input type="text" readOnly value={selectedContract.months} className="w-full px-2 outline-none font-bold text-center bg-gray-50" />
+                  </div>
+                  <div className="flex h-12 border-2 border-red-300 w-full sm:w-1/2 font-bold">
+                    <div className="bg-red-50 text-red-900 border-l border-red-300 px-3 flex items-center justify-center w-40 shrink-0">الدفعة الشهرية :</div>
+                    <div className="w-full px-3 outline-none flex items-center justify-center bg-red-50 text-red-600 text-xl">{selectedContract.monthlyAmount.toFixed(2)}</div>
                   </div>
                 </div>
               </div>
-            </div>
 
-            {/* Financial Data */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-300 overflow-hidden mb-6">
-              <div className="p-6 space-y-4">
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">المقدم</label>
-                    <input type="text" value={`${selectedContract.downPayment.toFixed(2)} ج`} readOnly
-                      className="w-full border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">النسبة</label>
-                    <input type="text" value={`${selectedContract.installmentPercentage || 0}%`} readOnly
-                      className="w-full border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">عدد الشهور</label>
-                    <input type="text" value={selectedContract.months.toString()} readOnly
-                      className="w-full border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900" />
-                  </div>
+              {/* Installment Table */}
+              <div className="w-full border-2 border-gray-500 overflow-hidden mt-2">
+                {/* Table Header */}
+                <div className="flex bg-[#111] text-white font-bold h-10">
+                  <div className="flex-[0.5] flex items-center justify-center border-l border-gray-500 text-sm">رقم القسط</div>
+                  <div className="flex-1 flex items-center justify-center border-l border-gray-500 text-sm">تاريخ الدفعات (المتوقع)</div>
+                  <div className="flex-1 flex items-center justify-center border-l border-gray-500 text-sm">مبلغ الدفع</div>
+                  <div className="flex-1 flex items-center justify-center border-l border-gray-500 text-sm">تاريخ الدفع (المتوقع)</div>
+                  <div className="flex-1 flex items-center justify-center text-sm">الحالة</div>
                 </div>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">الإجمالي بعد المقدم</label>
-                    <input type="text" value={`${(selectedContract.monthlyAmount * selectedContract.months).toFixed(2)} ج`} readOnly
-                      className="w-full border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 font-bold text-indigo-700" />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">الدفعات الشهرية</label>
-                    <input type="text" value={`${selectedContract.monthlyAmount.toFixed(2)} ج`} readOnly
-                      className="w-full border-gray-200 rounded-lg p-3 border bg-gray-50 text-gray-900 font-bold text-indigo-700" />
-                  </div>
-                </div>
-              </div>
-            </div>
 
-            {/* Installment Table */}
-            <div className="bg-white rounded-xl shadow-sm border border-gray-300 overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-right border-collapse">
-                  <thead>
-                    <tr className="bg-indigo-50 text-indigo-900 border-b border-gray-200">
-                      <th className="p-4 font-bold border-l border-indigo-100 text-center w-24">رقم القسط</th>
-                      <th className="p-4 font-bold border-l border-indigo-100">تاريخ الدفعات</th>
-                      <th className="p-4 font-bold border-l border-indigo-100">مبلغ الدفع</th>
-                      <th className="p-4 font-bold w-48">تاريخ الدفع</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {selectedContract.installments.map(inst => {
-                      const isPaid = inst.status === 'paid';
-                      return (
-                        <tr key={inst.id} className={`border-b border-gray-100 transition-colors ${isPaid ? 'bg-green-50' : 'hover:bg-gray-50'}`}>
-                          <td className="p-4 font-bold text-indigo-900 text-lg text-center">{inst.monthNumber}</td>
-                          <td className="p-4 font-medium">{inst.expectedDate}</td>
-                          <td className="p-4">
-                            {isPaid ? (
-                              <span className="font-bold text-green-700">{inst.paidAmount.toFixed(2)} ج</span>
-                            ) : (
-                              <span className="font-bold text-gray-900">{inst.amount.toFixed(2)} ج</span>
-                            )}
-                          </td>
-                          <td className="p-4">
-                            {isPaid ? (
-                              <span className="flex items-center gap-1 text-green-700 font-bold">
-                                <Check size={16} /> {inst.actualDate}
-                              </span>
-                            ) : (
-                              <div className="flex items-center gap-2">
-                                <input type="date" defaultValue={paymentDate}
-                                  className="border border-gray-200 rounded px-3 py-2 text-sm w-40" id={`date-${inst.id}`} />
-                                <button onClick={() => {
-                                  const dateInput = document.getElementById(`date-${inst.id}`) as HTMLInputElement;
-                                  handlePayInstallment(inst.id, inst.amount);
-                                }}
-                                  className="bg-indigo-600 text-white px-4 py-2 rounded-lg text-sm hover:bg-indigo-700 font-bold transition-colors">
-                                  دفع
-                                </button>
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Mobile view */}
-              <div className="md:hidden divide-y divide-gray-200">
-                {selectedContract.installments.map(inst => {
-                  const isPaid = inst.status === 'paid';
-                  return (
-                    <div key={inst.id} className={`p-4 ${isPaid ? 'bg-green-50' : ''}`}>
-                      <button onClick={() => setExpandedRow(expandedRow === inst.id ? null : inst.id)}
-                        className="w-full flex items-center justify-between mb-2">
-                        <span className="font-bold text-indigo-900">القسط {inst.monthNumber}</span>
-                        <span className={isPaid ? 'text-green-700 font-bold' : 'text-gray-700 font-bold'}>
-                          {isPaid ? `${inst.paidAmount.toFixed(2)} ج` : `${inst.amount.toFixed(2)} ج`}
-                        </span>
-                      </button>
-                      {expandedRow === inst.id && (
-                        <div className="space-y-2 text-sm pr-2">
-                          <div className="flex justify-between"><span className="text-gray-500">تاريخ الدفعات:</span><span>{inst.expectedDate}</span></div>
-                          <div className="flex justify-between"><span className="text-gray-500">تاريخ الدفع:</span>
-                            <span>{isPaid ? inst.actualDate : '-'}</span>
-                          </div>
-                          {isPaid ? (
-                            <span className="inline-flex items-center gap-1 text-green-700 font-bold"><Check size={16} /> مسدد</span>
-                          ) : (
-                            <div className="flex gap-2 mt-2">
-                              <input type="date" defaultValue={paymentDate} className="flex-1 border border-gray-200 rounded px-3 py-2 text-sm" id={`mdate-${inst.id}`} />
-                              <button onClick={() => {
-                                const dInput = document.getElementById(`mdate-${inst.id}`) as HTMLInputElement;
-                                handlePayInstallment(inst.id, inst.amount);
-                              }}
-                                className="bg-indigo-600 text-white px-5 py-2 rounded-lg text-sm font-bold">دفع</button>
-                            </div>
-                          )}
-                        </div>
-                      )}
-                    </div>
+                {/* Table Rows */}
+                {(() => {
+                  const rows: React.ReactNode[] = [];
+                  const maxMonths = Math.max(
+                    selectedContract.months,
+                    selectedContract.installments.filter(i => i.status === 'paid').length + (remainingAmount > 0 ? 1 : 0)
                   );
-                })}
-              </div>
-            </div>
 
-            {/* Summary */}
-            <div className="mt-6 p-4 bg-indigo-50 rounded-xl border border-indigo-200 flex flex-wrap items-center justify-between gap-4">
-              <div className="text-sm text-indigo-900">
-                <span className="font-bold">الإجمالي:</span> {(selectedContract.monthlyAmount * selectedContract.months).toFixed(2)} ج
-                <span className="mx-3">|</span>
-                <span className="font-bold text-green-700">المدفوع:</span> {totalPaid.toFixed(2)} ج
-                <span className="mx-3">|</span>
-                <span className="font-bold text-red-600">المتبقي:</span> {totalRemaining.toFixed(2)} ج
-              </div>
-              {totalRemaining <= 0 && selectedContract.installments.length > 0 && (
-                <span className="flex items-center gap-1 text-green-700 font-bold bg-green-100 px-4 py-2 rounded-lg">
-                  <Check size={20} /> تم سداد كامل المبلغ
-                </span>
-              )}
-            </div>
-          </>
-        )}
+                  for (let i = 0; i < maxMonths; i++) {
+                    const monthNum = i + 1;
+                    const paidInstallment = selectedContract.installments.find(inst => inst.monthNumber === monthNum && inst.status === 'paid');
+                    const isCurrentUnpaid = !paidInstallment && remainingAmount > 0 && i === selectedContract.installments.filter(inst => inst.status === 'paid').length;
+                    const isFuture = !paidInstallment && !isCurrentUnpaid;
 
-        {!selectedContract && (
-          <div className="text-center py-20 text-gray-400">
-            <Receipt size={64} className="mx-auto mb-4 opacity-30" />
-            <p className="text-lg">ابحث عن عميل لعرض بيانات السداد</p>
-          </div>
-        )}
+                    const expectedDate = new Date(startDate);
+                    expectedDate.setMonth(expectedDate.getMonth() + monthNum);
+                    const dateStr = expectedDate.toLocaleDateString('en-GB');
+
+                    if (paidInstallment) {
+                      rows.push(
+                        <div key={`paid-${monthNum}`} className="flex bg-white h-10 border-b border-gray-300 font-bold">
+                          <div className="flex-[0.5] flex items-center justify-center border-l border-gray-300 text-sm">{monthNum}</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm text-gray-800">{dateStr}</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm text-green-700">{paidInstallment.paidAmount.toFixed(2)}</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm">{paidInstallment.actualDate ? new Date(paidInstallment.actualDate).toLocaleDateString('en-GB') : '-'}</div>
+                          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">تم الدفع</div>
+                        </div>
+                      );
+                    } else if (isCurrentUnpaid) {
+                      rows.push(
+                        <div key={`current-${monthNum}`} className="flex bg-yellow-50 h-10 border-b-2 border-gray-500 font-bold">
+                          <div className="flex-[0.5] flex items-center justify-center border-l border-gray-300 text-sm">{monthNum}</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm text-blue-800">{dateStr}</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm">
+                            <input type="number" value={paymentAmount || ''} onChange={e => setPaymentAmount(Number(e.target.value) || 0)}
+                              className="w-full px-2 outline-none text-center bg-white border border-blue-400 mx-2 text-blue-700 font-bold" placeholder="المبلغ" />
+                          </div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm text-gray-500">{today}</div>
+                          <div className="flex-1 flex items-center justify-center">
+                            <button onClick={handlePay} className="bg-blue-600 hover:bg-blue-700 text-white px-2 py-1 rounded shadow-sm text-sm">تسديد الدفعة</button>
+                          </div>
+                        </div>
+                      );
+                    } else {
+                      rows.push(
+                        <div key={`future-${monthNum}`} className="flex bg-gray-50 h-10 border-b border-gray-200">
+                          <div className="flex-[0.5] flex items-center justify-center border-l border-gray-300 text-sm text-gray-400 font-bold">{monthNum}</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm text-gray-500 font-bold">{dateStr}</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm text-gray-400">-</div>
+                          <div className="flex-1 flex items-center justify-center border-l border-gray-300 text-sm text-gray-400">-</div>
+                          <div className="flex-1 flex items-center justify-center text-sm text-gray-400">-</div>
+                        </div>
+                      );
+                    }
+                  }
+                  return rows;
+                })()}
+
+                {/* Table Footer: remaining total */}
+                <div className="flex bg-gray-200 h-10 font-bold border-t-2 border-gray-500">
+                  <div className="flex-[0.5] border-l border-gray-400"></div>
+                  <div className="flex-1 flex items-center justify-end px-4 border-l border-gray-400 text-red-700">إجمالي المتبقي :</div>
+                  <div className="flex-1 flex items-center justify-center border-l border-gray-400 text-red-700 text-lg">{remainingAmount.toFixed(2)}</div>
+                  <div className="flex-1"></div>
+                </div>
+              </div>
+            </>
+          ) : (
+            <div className="text-center py-20 text-gray-400">
+              <div className="text-7xl mb-4 opacity-30 font-black">?</div>
+              <p className="text-lg font-bold">ابحث عن عميل لعرض بيانات السداد</p>
+            </div>
+          )}
+        </div>
       </div>
     </Layout>
   );
